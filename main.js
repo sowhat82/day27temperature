@@ -1,15 +1,16 @@
 // load the libs
 const express = require('express')
 const MongoClient = require('mongodb').MongoClient;
-const TimeStamp = require('mongodb').Timestamp; //timestamp datatype for mongo
 const morgan = require ('morgan')
 const url = 'mongodb://localhost:27017' /* connection string */
 const bodyParser = require('body-parser');
 var multer = require('multer');
 var multipart = multer({dest: 'uploads/'});
 const fs = require('fs')
+
 const DATABASE = 'covid'
 const COLLECTION = 'temperature'
+
 const AWS = require('aws-sdk');
 const endpoint = new AWS.Endpoint('fra1.digitaloceanspaces.com');
 const config = require('./config.json');
@@ -48,24 +49,24 @@ client.connect()
         console.error('canot connect to mongodb: ', e)
 })
 
-app.post('/temperatureDetails', async (req, resp) => {
+app.post('/submitDeclaration', async (req, resp) => {
 
-    const userName = req.body.userName;
-    const date = req.body.date;
-    const personalSymptoms = req.body.personalSymptoms;
-    const householdSymptoms = req.body.householdSymptoms;
-    const temperature = req.body.temperature;
+    const NRIC = req.body.NRIC;
+    const personalSymptoms = (req.body.personalSymptoms == "yes");
+    const householdSymptoms = (req.body.householdSymptoms == "yes");
+    const temperature = parseFloat(req.body.temperature);
+    const digitalOceanKey = req.body.digitalOceanKey
 
     try{
-        const result = await client.db('mydb')
-        .collection('temperatures')
+        const result = await client.db(DATABASE)
+        .collection(COLLECTION)
         .insertOne({
-            userName: userName,
-            date: date,
-            timeStamp: TimeStamp.fromNumber(new Date().getTime()),
+            NRIC: NRIC,
+            timeStamp: new Date(),
             personalSymptoms: personalSymptoms,
             householdSymptoms: householdSymptoms,
-            temperature: temperature
+            temperature: temperature,
+            digitalOceanKey: digitalOceanKey
         })
 
         resp.status(200)
@@ -74,7 +75,9 @@ app.post('/temperatureDetails', async (req, resp) => {
 
     }
     catch(e){
+        resp.status(500)
         console.info(e)
+        resp.json({e})
     }
 
 });
@@ -82,6 +85,12 @@ app.post('/temperatureDetails', async (req, resp) => {
 // upload file to S3
 app.post('/uploadImage', multipart.single('image-file'),
     (req, resp) => {
+
+        resp.on('finish', () => {
+            // delete temp file that multer stores
+            fs.unlink(req.file.path, () =>{})
+        })
+
         fs.readFile(req.file.path, async (err, imgFile) => {
             
             // put object configurations
@@ -111,3 +120,75 @@ app.post('/uploadImage', multipart.single('image-file'),
 
     }    
 );
+
+app.get('/confirmationDetails/:NRIC', async (req, resp) => {
+
+    const NRIC = req.params['NRIC']
+    console.info(NRIC)
+    try{
+        console.info('here')
+        const result = await client.db(DATABASE)
+        .collection(COLLECTION)
+        .find(
+            {
+                  NRIC: NRIC
+            }
+        
+        )
+        // .project({title:1, price:1, country:1})
+        .toArray()
+        resp.status(200)
+        resp.type('application/json')
+        resp.json(result)
+
+    }
+    catch(e){
+        console.info(e)
+    }
+
+})
+
+app.get('/allDetails', async (req, resp) => {
+
+    try{
+        const result = await client.db(DATABASE)
+        .collection(COLLECTION)
+        .find(
+            {
+            }        
+        )
+        // .project({title:1, price:1, country:1})
+        .toArray()
+        resp.status(200)
+        resp.type('application/json')
+        resp.json(result)
+
+    }
+    catch(e){
+        console.info(e)
+    }
+
+})
+
+app.post('/deleteRecord', async (req, resp) => {
+
+    const ObjectID = req.body.objectID;
+    try{
+        const result = await client.db(DATABASE)
+        .collection(COLLECTION)
+        .deleteOne(
+            {
+                _id: ObjectId(ObjectID)          
+            }        
+        )
+        // .project({title:1, price:1, country:1})
+        resp.status(200)
+        resp.type('application/json')
+        resp.json(result)
+
+    }
+    catch(e){
+        console.info(e)
+    }
+
+});
